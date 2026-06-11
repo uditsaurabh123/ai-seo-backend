@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const Anthropic = require("@anthropic-ai/sdk");
 const cors = require("cors");
 const path = require("path");
+const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
@@ -20,22 +21,440 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files from 'public' directory
-app.use(express.static(path.join(__dirname, "public")));
+// Serve a compiled React app from client/dist when available, otherwise keep
+// the lightweight public fallback available for local backend-only runs.
+const clientDistPath = path.join(__dirname, "client", "dist");
+const publicAssetsPath = path.join(__dirname, "public");
+const staticAssetsPath = fs.existsSync(clientDistPath) ? clientDistPath : publicAssetsPath;
+app.use(express.static(staticAssetsPath));
 
-// Initialize Razorpay
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+// Initialize external SDKs only when credentials exist so the WorkYodha demo
+// board can run locally without payment or AI-analysis environment variables.
+const razorpay =
+  process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
+    ? new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET,
+      })
+    : null;
 
-// Initialize Anthropic
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    })
+  : null;
 
 // In-memory session store (use Redis in production)
 const paymentSessions = new Map();
+
+
+// WorkYodha operational task board data store. This repository keeps the demo
+// self-contained, while the shape mirrors MongoDB documents so it can be moved
+// to Mongoose collections without changing the React client contract.
+const workYodhaTasks = new Map(
+  getSeedTasks().map((task) => [task.id, task])
+);
+
+function getSeedTasks() {
+  return [
+    {
+      id: "task-001",
+      title: "Inventory Reorder",
+      department: "Operations",
+      priority: "High",
+      deadline: "2026-06-15T18:00:00.000Z",
+      status: "Open",
+      riskLevel: "High Risk",
+      estimatedHours: 20,
+      notes:
+        "Reorder fast-moving SKUs before warehouse stock falls below minimum levels. Verify updated vendor quote and demand forecast.",
+      assignee: {
+        id: "emp-101",
+        name: "Vikram Singh",
+        role: "Operations Executive",
+        department: "Operations",
+        workload: 78,
+        hourlyCost: 360,
+        avatar: "VS",
+      },
+      reviewer: {
+        id: "rev-201",
+        name: "Neha Kapoor",
+        role: "Operations Manager",
+        department: "Operations",
+        approvalStatus: "Waiting for Evidence",
+        pendingReviews: 6,
+        responsibility: "Validate inventory quantities, vendor terms, and final reorder approval.",
+        avatar: "NK",
+      },
+      evidence: [
+        { id: "ev-001", type: "Stock Report", format: "PDF", status: "Approved" },
+        { id: "ev-002", type: "Vendor Quote", format: "XLSX", status: "Pending" },
+        { id: "ev-003", type: "Demand Forecast", format: "XLSX", status: "Requested Changes" },
+      ],
+    },
+    {
+      id: "task-002",
+      title: "Invoice Verification",
+      department: "Finance",
+      priority: "High",
+      deadline: "2026-06-13T12:00:00.000Z",
+      status: "In Review",
+      riskLevel: "High Risk",
+      estimatedHours: 3.5,
+      notes: "Verify supplier invoice values against purchase order, tax fields, and expense log before payment release.",
+      assignee: {
+        id: "emp-102",
+        name: "Anika Verma",
+        role: "Finance Executive",
+        department: "Finance",
+        workload: 64,
+        hourlyCost: 720,
+        avatar: "AV",
+      },
+      reviewer: {
+        id: "rev-202",
+        name: "Rahul Mehta",
+        role: "Finance Manager",
+        department: "Finance",
+        approvalStatus: "In Review",
+        pendingReviews: 4,
+        responsibility: "Confirm compliance, payment readiness, and ledger accuracy.",
+        avatar: "RM",
+      },
+      evidence: [
+        { id: "ev-004", type: "Invoice PDF", format: "PDF", status: "Approved" },
+        { id: "ev-005", type: "Expense Log", format: "XLSX", status: "Approved" },
+        { id: "ev-006", type: "Approval Note", format: "NOTE", status: "Pending" },
+      ],
+    },
+    {
+      id: "task-003",
+      title: "Onboarding Packet Review",
+      department: "HR",
+      priority: "Medium",
+      deadline: "2026-06-22T16:00:00.000Z",
+      status: "Open",
+      riskLevel: "Medium Risk",
+      estimatedHours: 1.5,
+      notes: "Review new-hire onboarding packet for completeness before HRIS activation.",
+      assignee: {
+        id: "emp-103",
+        name: "Priya Nair",
+        role: "HR Executive",
+        department: "HR",
+        workload: 52,
+        hourlyCost: 410,
+        avatar: "PN",
+      },
+      reviewer: {
+        id: "rev-203",
+        name: "Sarah Iyer",
+        role: "HR Manager",
+        department: "HR",
+        approvalStatus: "Not Started",
+        pendingReviews: 3,
+        responsibility: "Approve identification proof, offer letter, and onboarding checklist.",
+        avatar: "SI",
+      },
+      evidence: [
+        { id: "ev-007", type: "Offer Letter", format: "DOC", status: "Approved" },
+        { id: "ev-008", type: "ID Proof", format: "PDF", status: "Pending" },
+        { id: "ev-009", type: "Checklist", format: "FORM", status: "Pending" },
+      ],
+    },
+    {
+      id: "task-004",
+      title: "Lead Follow-up",
+      department: "Sales",
+      priority: "Urgent",
+      deadline: "2026-06-12T15:00:00.000Z",
+      status: "Blocked",
+      riskLevel: "High Risk",
+      estimatedHours: 1,
+      notes: "Follow up on enterprise lead and attach call log, thread screenshot, and proposal URL.",
+      assignee: {
+        id: "emp-104",
+        name: "Karan Malhotra",
+        role: "Sales Executive",
+        department: "Sales",
+        workload: 88,
+        hourlyCost: 410,
+        avatar: "KM",
+      },
+      reviewer: {
+        id: "rev-204",
+        name: "Meera Joshi",
+        role: "Sales Manager",
+        department: "Sales",
+        approvalStatus: "Blocked",
+        pendingReviews: 8,
+        responsibility: "Approve customer response quality and next-step commitment.",
+        avatar: "MJ",
+      },
+      evidence: [
+        { id: "ev-010", type: "Call Log", format: "CSV", status: "Pending" },
+        { id: "ev-011", type: "Email Thread", format: "URL", status: "Rejected" },
+        { id: "ev-012", type: "Proposal URL", format: "URL", status: "Pending" },
+      ],
+    },
+    {
+      id: "task-005",
+      title: "Vendor Onboarding",
+      department: "Finance",
+      priority: "Medium",
+      deadline: "2026-06-19T10:00:00.000Z",
+      status: "In Review",
+      riskLevel: "Medium Risk",
+      estimatedHours: 2,
+      notes: "Complete vendor risk packet and confirm bank details before procurement activation.",
+      assignee: {
+        id: "emp-105",
+        name: "Rahul Mehta",
+        role: "Finance Manager",
+        department: "Finance",
+        workload: 72,
+        hourlyCost: 900,
+        avatar: "RM",
+      },
+      reviewer: {
+        id: "rev-205",
+        name: "Pooja Iyer",
+        role: "Procurement Lead",
+        department: "Operations",
+        approvalStatus: "In Review",
+        pendingReviews: 5,
+        responsibility: "Review KYC documents, bank proof, and procurement compliance.",
+        avatar: "PI",
+      },
+      evidence: [
+        { id: "ev-013", type: "Vendor Form", format: "FORM", status: "Approved" },
+        { id: "ev-014", type: "KYC Docs", format: "PDF", status: "Approved" },
+        { id: "ev-015", type: "Bank Proof", format: "PDF", status: "Pending" },
+      ],
+    },
+    {
+      id: "task-006",
+      title: "Supplier Performance Review",
+      department: "Operations",
+      priority: "Medium",
+      deadline: "2026-06-24T17:30:00.000Z",
+      status: "Pending Review",
+      riskLevel: "Medium Risk",
+      estimatedHours: 3,
+      notes: "Score supplier performance using SLA feedback, defect report, and renewal recommendation.",
+      assignee: {
+        id: "emp-106",
+        name: "Neha Kapoor",
+        role: "Operations Manager",
+        department: "Operations",
+        workload: 81,
+        hourlyCost: 850,
+        avatar: "NK",
+      },
+      reviewer: {
+        id: "rev-206",
+        name: "Arun Desai",
+        role: "Supply Chain Head",
+        department: "Operations",
+        approvalStatus: "Pending Approval",
+        pendingReviews: 9,
+        responsibility: "Approve renewal recommendation and supplier performance score.",
+        avatar: "AD",
+      },
+      evidence: [
+        { id: "ev-016", type: "Scorecard", format: "XLSX", status: "Approved" },
+        { id: "ev-017", type: "Feedback", format: "DOC", status: "Approved" },
+        { id: "ev-018", type: "Defect Report", format: "PDF", status: "Pending" },
+      ],
+    },
+    {
+      id: "task-007",
+      title: "Policy Acknowledgement",
+      department: "HR",
+      priority: "Low",
+      deadline: "2026-06-18T09:30:00.000Z",
+      status: "Open",
+      riskLevel: "Low Risk",
+      estimatedHours: 0.5,
+      notes: "Collect employee acknowledgement for revised hybrid work policy.",
+      assignee: {
+        id: "emp-107",
+        name: "Sarah Iyer",
+        role: "HR Manager",
+        department: "HR",
+        workload: 44,
+        hourlyCost: 790,
+        avatar: "SI",
+      },
+      reviewer: {
+        id: "rev-207",
+        name: "Arjun Nair",
+        role: "HR Director",
+        department: "HR",
+        approvalStatus: "Not Started",
+        pendingReviews: 2,
+        responsibility: "Confirm policy acknowledgement coverage and escalation list.",
+        avatar: "AN",
+      },
+      evidence: [
+        { id: "ev-019", type: "Signed Acknowledgement", format: "PDF", status: "Pending" },
+        { id: "ev-020", type: "Policy Doc", format: "DOC", status: "Approved" },
+      ],
+    },
+    {
+      id: "task-008",
+      title: "Customer Refund Approval",
+      department: "Sales",
+      priority: "Medium",
+      deadline: "2026-06-20T11:00:00.000Z",
+      status: "Pending Review",
+      riskLevel: "Medium Risk",
+      estimatedHours: 2.5,
+      notes: "Verify customer refund eligibility and attach payment proof before finance approval.",
+      assignee: {
+        id: "emp-108",
+        name: "Meera Joshi",
+        role: "Sales Manager",
+        department: "Sales",
+        workload: 69,
+        hourlyCost: 820,
+        avatar: "MJ",
+      },
+      reviewer: {
+        id: "rev-208",
+        name: "Siddhant Bedi",
+        role: "Finance Lead",
+        department: "Finance",
+        approvalStatus: "Pending Approval",
+        pendingReviews: 7,
+        responsibility: "Approve refund amount, payment proof, and customer note.",
+        avatar: "SB",
+      },
+      evidence: [
+        { id: "ev-021", type: "Refund Form", format: "FORM", status: "Approved" },
+        { id: "ev-022", type: "Payment Proof", format: "PDF", status: "Pending" },
+        { id: "ev-023", type: "Customer Note", format: "NOTE", status: "Pending" },
+      ],
+    },
+  ];
+}
+
+function decorateTask(task) {
+  const now = Date.now();
+  const due = new Date(task.deadline).getTime();
+  const hoursRemaining = Math.round(((due - now) / (1000 * 60 * 60)) * 10) / 10;
+  const overdue = hoursRemaining < 0;
+  const laborCost = Math.round(task.estimatedHours * task.assignee.hourlyCost);
+  const missingEvidence = task.evidence.filter((item) => item.status !== "Approved").length;
+
+  return {
+    ...task,
+    hoursRemaining,
+    overdue,
+    delayed: overdue || task.status === "Blocked",
+    waitingForReview: ["In Review", "Pending Review"].includes(task.status),
+    laborCost,
+    missingEvidence,
+  };
+}
+
+function getVisibleTasks(role, personId) {
+  const tasks = Array.from(workYodhaTasks.values()).map(decorateTask);
+
+  if (role === "employee" && personId) {
+    return tasks.filter((task) => task.assignee.id === personId);
+  }
+
+  if (role === "reviewer" && personId) {
+    return tasks.filter((task) => task.reviewer.id === personId || task.waitingForReview);
+  }
+
+  return tasks;
+}
+
+function buildTaskBoardPayload(role = "admin", personId) {
+  const tasks = getVisibleTasks(role, personId);
+  const departments = {};
+  const employees = {};
+  const reviewers = {};
+
+  tasks.forEach((task) => {
+    const department = departments[task.department] || {
+      name: task.department,
+      tasks: 0,
+      totalHours: 0,
+      totalCost: 0,
+      highRisk: 0,
+      delayed: 0,
+    };
+    department.tasks += 1;
+    department.totalHours += task.estimatedHours;
+    department.totalCost += task.laborCost;
+    if (task.riskLevel === "High Risk") department.highRisk += 1;
+    if (task.delayed) department.delayed += 1;
+    departments[task.department] = department;
+
+    employees[task.assignee.id] = employees[task.assignee.id] || {
+      ...task.assignee,
+      assignedTasks: 0,
+      totalHours: 0,
+      totalCost: 0,
+    };
+    employees[task.assignee.id].assignedTasks += 1;
+    employees[task.assignee.id].totalHours += task.estimatedHours;
+    employees[task.assignee.id].totalCost += task.laborCost;
+
+    reviewers[task.reviewer.id] = reviewers[task.reviewer.id] || {
+      ...task.reviewer,
+      reviewTasks: 0,
+    };
+    reviewers[task.reviewer.id].reviewTasks += 1;
+  });
+
+  const totals = tasks.reduce(
+    (summary, task) => {
+      summary.openTasks += task.status !== "Completed" ? 1 : 0;
+      summary.pendingReviews += task.waitingForReview ? 1 : 0;
+      summary.totalHours += task.estimatedHours;
+      summary.totalCost += task.laborCost;
+      summary.deadlineRisks += task.riskLevel === "High Risk" || task.delayed ? 1 : 0;
+      summary.missingEvidence += task.missingEvidence;
+      return summary;
+    },
+    {
+      openTasks: 0,
+      pendingReviews: 0,
+      totalHours: 0,
+      totalCost: 0,
+      deadlineRisks: 0,
+      missingEvidence: 0,
+    }
+  );
+
+  return {
+    meta: {
+      generatedAt: new Date().toISOString(),
+      role,
+      personId: personId || null,
+      persistence: process.env.MONGODB_URI
+        ? "MongoDB-ready API contract; configure a Mongoose model in production."
+        : "In-memory demo store; set MONGODB_URI and map these documents to MongoDB for production.",
+    },
+    totals,
+    departments: Object.values(departments),
+    employees: Object.values(employees),
+    reviewers: Object.values(reviewers),
+    tasks,
+  };
+}
+
+function mergeEvidence(existingEvidence, updates = []) {
+  return existingEvidence.map((item) => {
+    const update = updates.find((candidate) => candidate.id === item.id);
+    return update ? { ...item, ...update } : item;
+  });
+}
 
 /**
  * SERVE UPGRADE PAGE
@@ -119,6 +538,13 @@ app.post("/api/payment/create-order", async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Session ID and Extension ID are required",
+      });
+    }
+
+    if (!razorpay) {
+      return res.status(503).json({
+        success: false,
+        error: "Payment gateway is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.",
       });
     }
 
@@ -281,6 +707,13 @@ app.post("/api/analyze", async (req, res) => {
       });
     }
 
+    if (!anthropic) {
+      return res.status(503).json({
+        success: false,
+        error: "AI analysis is not configured. Set ANTHROPIC_API_KEY.",
+      });
+    }
+
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 2000,
@@ -327,6 +760,74 @@ app.post("/api/analyze", async (req, res) => {
   }
 });
 
+
+
+/**
+ * WORKYODHA TASK BOARD API
+ * GET /api/workyodha/board?role=admin|manager|reviewer|employee|executive&personId=emp-101
+ */
+app.get("/api/workyodha/board", (req, res) => {
+  const { role = "admin", personId } = req.query;
+  res.json({
+    success: true,
+    board: buildTaskBoardPayload(role, personId),
+  });
+});
+
+/**
+ * UPDATE TASK OR EVIDENCE STATUS
+ * PATCH /api/workyodha/tasks/:taskId
+ */
+app.patch("/api/workyodha/tasks/:taskId", (req, res) => {
+  const { taskId } = req.params;
+  const existingTask = workYodhaTasks.get(taskId);
+
+  if (!existingTask) {
+    return res.status(404).json({
+      success: false,
+      error: "Task not found",
+    });
+  }
+
+  const allowedUpdates = [
+    "title",
+    "department",
+    "priority",
+    "deadline",
+    "status",
+    "riskLevel",
+    "estimatedHours",
+    "notes",
+  ];
+
+  const nextTask = { ...existingTask };
+  allowedUpdates.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+      nextTask[key] = req.body[key];
+    }
+  });
+
+  if (req.body.assignee) {
+    nextTask.assignee = { ...existingTask.assignee, ...req.body.assignee };
+  }
+
+  if (req.body.reviewer) {
+    nextTask.reviewer = { ...existingTask.reviewer, ...req.body.reviewer };
+  }
+
+  if (Array.isArray(req.body.evidence)) {
+    nextTask.evidence = mergeEvidence(existingTask.evidence, req.body.evidence);
+  }
+
+  workYodhaTasks.set(taskId, nextTask);
+
+  res.json({
+    success: true,
+    task: decorateTask(nextTask),
+    board: buildTaskBoardPayload(req.body.role || "admin", req.body.personId),
+  });
+});
+
 /**
  * HEALTH CHECK
  */
@@ -361,8 +862,9 @@ function cleanupOldSessions() {
   }
 }
 
-// Run cleanup every 30 minutes
-setInterval(cleanupOldSessions, 30 * 60 * 1000);
+// Run cleanup every 30 minutes without keeping test processes alive.
+const cleanupInterval = setInterval(cleanupOldSessions, 30 * 60 * 1000);
+cleanupInterval.unref();
 
 /**
  * HTML TEMPLATES
@@ -806,6 +1308,21 @@ function getSuccessPageHTML(paymentId) {
   `;
 }
 
+// SPA fallback for the React frontend. API and legacy payment routes should
+// continue to use their explicit handlers above.
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api") || req.path.startsWith("/upgrade") || req.path === "/health") {
+    return next();
+  }
+
+  const indexPath = path.join(staticAssetsPath, "index.html");
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+
+  return next();
+});
+
 // Error handling
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err);
@@ -817,9 +1334,12 @@ app.use((err, req, res, next) => {
 
 // Start server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`AI SEO Analyzer API running on port ${PORT}`);
-  console.log(`Payment page available at: http://localhost:${PORT}/upgrade`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`WorkYodha MERN task board API running on port ${PORT}`);
+    console.log(`Interactive board available at: http://localhost:${PORT}/`);
+    console.log(`Payment page available at: http://localhost:${PORT}/upgrade`);
+  });
+}
 
 module.exports = app;
