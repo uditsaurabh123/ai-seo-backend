@@ -1,6 +1,11 @@
-node_modules
-dist
+node_modules/
+client/node_modules/
+dist/
+client/dist/
+release/
 .env
 .env.*
-release
-target
+!.env.example
+.DS_Store
+npm-debug.log*
+target/
