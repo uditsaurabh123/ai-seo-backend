@@ -12,36 +12,31 @@ WorkYodha is a MERN-style operational command board served by a Node/Express API
 
 ## Run locally
 
-For a fresh download or unzipped copy, install backend and React frontend dependencies with one command:
+Install backend dependencies:
 
 ```bash
-npm run setup:local
+npm install
 ```
 
-Start the Express API and React/Vite frontend together:
+Install frontend dependencies:
 
 ```bash
-npm run dev:local
+npm --prefix client install
 ```
 
-Open `http://localhost:5173/`. API requests to `/api` are proxied to `http://localhost:3000`.
-
-You can still run each side manually if preferred:
+Start the backend API:
 
 ```bash
 npm start
+```
+
+Start the React development server in another terminal:
+
+```bash
 npm run client:dev
 ```
 
-## Download/share as a zip
-
-Create a distributable zip that excludes `node_modules`, build output, Git metadata, and old release files:
-
-```bash
-npm run package:zip
-```
-
-Share `release/workyodha-mern-task-board.zip`. See `DOWNLOAD_AND_RUN.md` for exact unzip and run instructions.
+Open the Vite URL shown in the terminal. API requests to `/api` are proxied to `http://localhost:3000`.
 
 ## Build and serve the React app from Express
 
