@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const Anthropic = require("@anthropic-ai/sdk");
 const cors = require("cors");
 const path = require("path");
+const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
@@ -20,8 +21,12 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files from 'public' directory
-app.use(express.static(path.join(__dirname, "public")));
+// Serve a compiled React app from client/dist when available, otherwise keep
+// the lightweight public fallback available for local backend-only runs.
+const clientDistPath = path.join(__dirname, "client", "dist");
+const publicAssetsPath = path.join(__dirname, "public");
+const staticAssetsPath = fs.existsSync(clientDistPath) ? clientDistPath : publicAssetsPath;
+app.use(express.static(staticAssetsPath));
 
 // Initialize external SDKs only when credentials exist so the WorkYodha demo
 // board can run locally without payment or AI-analysis environment variables.
@@ -1302,6 +1307,21 @@ function getSuccessPageHTML(paymentId) {
 </html>
   `;
 }
+
+// SPA fallback for the React frontend. API and legacy payment routes should
+// continue to use their explicit handlers above.
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api") || req.path.startsWith("/upgrade") || req.path === "/health") {
+    return next();
+  }
+
+  const indexPath = path.join(staticAssetsPath, "index.html");
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+
+  return next();
+});
 
 // Error handling
 app.use((err, req, res, next) => {
